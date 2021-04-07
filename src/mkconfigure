@@ -1,0 +1,10 @@
+#!/bin/sh
+#
+# $Id: mkconfigure,v 1.1 1999/10/03 19:11:00 noring Exp $
+#
+# Run `autoconf' and `autoheader' to create the configure script.
+
+autoconf
+autoheader
+
+exit 0

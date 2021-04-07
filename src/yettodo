@@ -1,0 +1,59 @@
+Subset of things to be done:
+
+   · Ports
+   · (read)
+   · (sort)
+   · (include)
+   · Module system
+   · Add PIDs
+   · Optimise overflow routines
+   · (encode/decode-value), ASN.1?
+   · Optimise pair heap reallocation
+   · Two-phase-mapping/vector problem
+   · Make the compiler faster & nicer
+   · Enhanced light-weight thread handling
+   · Reduce the number of fatal errors to a minimum
+   · Rename internal types to something more appropriate
+   · Add more wide-string support in utility functions
+   · Default to current environment for eval and load
+   · Sane error management (with line numbers etc.)
+   · Math
+   · Macros
+   · Extend the lexer's awareness of wide-strings
+   · (environment-define)
+   · Generational garbage collector
+   · Case operations
+   · Infinite lists?
+   · Records
+
+Subset of things that have been done or almost done:
+
+   · Traps
+   · (eval)
+   · (load)
+   · The e-flag
+   · Unicode, UTF8 & wide-strings
+   · Apply-copying
+   · Char
+   · Strings
+   · Symbols
+   · Vectors
+   · (set!)
+   · Two-pass compiler
+   · (write-binary-file)
+   · Fix truncate and round
+   · Make mappings and vectors unquotable
+   · Implement some kind of interactive mode
+   · Stop-and-copy garbage collector with a resizable pair heap
+   · Check parameter correctness
+   · Resizeable string heap
+   · #undefined from (define)
+   · Proper memory management
+   · (quote)
+   · (quasiquote)
+   · Lexer
+   · Big numbers
+   · Float numbers
+   · Any number of arguments
+   · Exceptions
+   · Call-with-current-continuation

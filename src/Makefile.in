@@ -1,0 +1,120 @@
+# $Id: Makefile.in,v 1.8 1999/10/10 22:53:13 noring Exp $
+#
+# Copyright (c) by Fredrik Noring.
+#
+#
+
+VPATH   = @srcdir@
+
+srcdir       = @srcdir@
+prefix       = @prefix@
+exec_prefix  = $(prefix)/bin
+lib_prefix   = $(prefix)/lib/shoe
+data_prefix  = @datadir@
+share_prefix = $(data_prefix)/shoe
+man_prefix   = $(prefix)/man
+
+# Enable warnings from the compiler, if wanted.
+WARN = @WARN@
+
+# Be sure to use -g  when looking for bugs.
+DEFINES = @CPPFLAGS@
+
+# -O should work with all compilers.
+OPTIMISE = @OPTIMISE@
+
+# Pre-processor flags.
+PREFLAGS   = -I. -I$(srcdir) $(DEFINES)
+OTHERFLAGS = @CFLAGS@ $(OPTIMISE) $(WARN)
+NOOPTFLAGS = @CFLAGS@ @CPPFLAGS@ $(WARN)
+CFLAGS     = $(PREFLAGS) $(OTHERFLAGS)
+
+# Library files.
+LIBS=@LIBS@
+
+CPP     = @CPP@
+CC      = @CC@
+#AR      = @AR@
+#LD      = @LD@
+LDFLAGS = @LDFLAGS@
+
+INSTALL = @INSTALL@
+
+OBJS = args.o     \
+       bif.o      \
+       big.o      \
+       deb.o      \
+       err.o      \
+       exit.o     \
+       garb.o     \
+       kernel.o   \
+       lexer.o    \
+       map.o      \
+       mat.o      \
+       mem.o      \
+       pair.o     \
+       port.o     \
+       process.o  \
+       str.o      \
+       svalue.o   \
+       vec.o
+
+all:	shoe
+
+.SUFFIXES: .c .o
+
+.c.o:
+	@echo "Compiling $<"
+	@$(CC) $(CFLAGS) -c $< -o $@
+
+shoe:	$(OBJS)
+	$(CC) $(OBJS) -o $@ $(LDFLAGS) $(LIBS)
+
+check: verify
+
+verify:	shoe
+	./shoe $(srcdir)/../lib/testsuite.shoe
+
+install: shoe
+	$(INSTALL) shoe $(exec_prefix)
+
+clean:
+	rm -f *.o *~ core shoe
+
+spotless: clean
+	rm -f Makefile Makefile.nodep universe.* config.* configure smartlink
+
+#
+# Regular dependencies.
+#
+
+depend: $(OBJS:.o=.c)
+	rm -f Makefile.nodep
+	mv Makefile Makefile.nodep
+	( sed '/^#--DO NOT REMOVE THIS LINE--$$/q' < Makefile.nodep && \
+	  $(CC) -MM $^ $(CFLAGS) | sed -e "s@ ${srcdir}/\([-a-zA-Z0-9.,_]*\)@ $$\{srcdir\}/\1@g" ) > Makefile
+
+#
+# Meta-dependencies.
+#
+
+configure: configure.in
+	cd $(srcdir) && autoconf
+
+# autoheader might not change config.h.in, so touch a stamp file.
+config.h.in: stamp-h.in
+stamp-h.in: configure.in acconfig.h config.h.top config.h.bot
+	(cd ${srcdir} && autoheader)
+	echo timestamp > ${srcdir}/stamp-h.in
+
+config.h: stamp-h
+stamp-h: config.h.in config.status
+	./config.status
+
+Makefile: Makefile.in config.status
+	./config.status
+
+config.status: configure
+	./config.status --recheck
+
+#--DO NOT REMOVE THIS LINE--

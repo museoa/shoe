@@ -1,0 +1,570 @@
+;; testsuite.shoe
+;;
+;; COPYRIGHT (c) 1999 by Fredrik Noring.
+;;
+;; Testsuite for Shoe.
+
+;; Yet to do:
+;;
+;;   · Error checks.
+;;
+
+;;
+;; Standard library functions.
+;;
+
+(define (equal? a b)
+  ;; FIXME: Mappings, ...
+  (or (eq? a b)
+      (and (pair? a) (pair? b)
+	   (equal? (car a) (car b))
+	   (equal? (cdr a) (cdr b)))
+      (and (vector? a) (vector? b)
+	   (equal? (vector->list a) (vector->list b)))))
+
+;;
+;; Define testing functions.
+;;
+
+(define test-number 0)
+
+(define (test-eq name a b)
+  (display "testing ")
+  (display test-number) (display " ") (display name) (display "... ")
+  (if (eq? a b)
+      (set! test-number (+ 1 test-number))
+      (fatal-error "Failure on test number" test-number "[" a ":" b "]"))
+  (display "ok\n"))
+
+(define (test-true name a)
+  (test-eq name #t a))
+
+(define (test-false name a)
+  (test-eq name #f a))
+
+(define (test-false name a)
+  (test-eq name #f a))
+
+(define (test-equal name a b)
+  (test-eq name #t (equal? a b)))
+
+;;
+;; Testing functions for big integers (not always enabled).
+;;
+
+(define (big-test-eq name a b)
+  (if (has-big-integers?)
+      (test-eq name a b)))
+
+(define (big-test-true name a)
+  (if (has-big-integers?)
+      (test-eq name #t a)))
+
+(define (big-test-false name a)
+  (if (has-big-integers?)
+      (test-eq name #f a)))
+
+(define (big-test-false name a)
+  (if (has-big-integers?)
+      (test-eq name #f a)))
+
+(define (big-test-equal name a b)
+  (if (has-big-integers?)
+      (test-eq name #t (equal? a b))))
+
+;;
+;; Equivalences.
+;;
+
+(test-true  "equal?" (equal? 42 42))
+(test-false "equal?" (equal? 42 43))
+(test-true  "equal?" (equal? '() '()))
+(test-true  "equal?" (equal? '(a) '(a)))
+(test-true  "equal?" (equal? '(a b (d 4711)) '(a b (d 4711))))
+(test-false "equal?" (equal? '(a) 42))
+(test-false "equal?" (equal? '(a b (c (76))) '(a b (d (76)))))
+
+;;
+;; Arithmetics.
+;;
+
+(test-false "number?" (number? 'x))
+(test-true  "number?" (number? 42))
+(test-true  "number?" (number? #i42))
+(test-false "number?" (number? "fubar"))
+
+(big-test-true "number?" (number? 42000000000000000000000000000000))
+
+(test-true "zero?" (zero? 0))
+(test-true "zero?" (zero? #i0))
+
+(big-test-false "zero?" (zero? 10000000000000000000000000))
+
+(test-true  "positive?" (positive? 0))
+(test-true  "positive?" (positive? #i0))
+(test-true  "positive?" (positive? 42))
+(test-true  "positive?" (positive? #i42))
+(test-false "positive?" (positive? #i-42))
+(test-false "positive?" (positive? -42))
+
+(big-test-true  "positive?" (positive? 4200000000000000000000))
+(big-test-false "positive?" (positive? -4200000000000000000000))
+
+(test-false "negative?" (negative? 0))
+(test-false "negative?" (negative? #i0))
+(test-false "negative?" (negative? 42))
+(test-false "negative?" (negative? #i42))
+(test-true  "negative?" (negative? #i-42))
+(test-true  "negative?" (negative? -42))
+
+(big-test-false "negative?" (negative? 4200000000000000000000))
+(big-test-true  "negative?" (negative? -4200000000000000000000))
+
+(test-false "odd?" (odd? -2))
+(test-true  "odd?" (odd? -1))
+(test-false "odd?" (odd? 0))
+(test-true  "odd?" (odd? -1))
+(test-false "odd?" (odd? 2))
+
+(test-false "odd?" (odd? #i-2))
+(test-true  "odd?" (odd? #i-1))
+(test-false "odd?" (odd? #i0))
+(test-true  "odd?" (odd? #i-1))
+(test-false "odd?" (odd? #i2))
+
+(big-test-false "odd?" (odd? -200000000000000000000))
+(big-test-true  "odd?" (odd? -100000000000000000001))
+(big-test-true  "odd?" (odd? 100000000000000000001))
+(big-test-false "odd?" (odd? 200000000000000000000))
+
+(test-true  "even?" (even? -2))
+(test-false "even?" (even? -1))
+(test-true  "even?" (even? 0))
+(test-false "even?" (even? -1))
+(test-true  "even?" (even? 2))
+
+(test-true  "even?" (even? #i-2))
+(test-false "even?" (even? #i-1))
+(test-true  "even?" (even? #i0))
+(test-false "even?" (even? #i-1))
+(test-true  "even?" (even? #i2))
+
+(big-test-true  "even?" (even? -200000000000000000000))
+(big-test-false "even?" (even? -100000000000000000001))
+(big-test-false "even?" (even? 100000000000000000001))
+(big-test-true  "even?" (even? 200000000000000000000))
+
+(test-eq "abs" 2 (abs -2))
+(test-eq "abs" 1 (abs -1))
+(test-eq "abs" 0 (abs  0))
+(test-eq "abs" 1 (abs  1))
+(test-eq "abs" 2 (abs  2))
+
+(test-eq "abs" #i2 (abs #i-2))
+(test-eq "abs" #i1 (abs #i-1))
+(test-eq "abs" #i0 (abs  #i0))
+(test-eq "abs" #i1 (abs  #i1))
+(test-eq "abs" #i2 (abs  #i2))
+
+(big-test-eq "abs" 200000000000000000000 (abs -200000000000000000000))
+(big-test-eq "abs" 100000000000000000000 (abs -100000000000000000000))
+(big-test-eq "abs" 000000000000000000000 (abs  000000000000000000000))
+(big-test-eq "abs" 100000000000000000000 (abs  100000000000000000000))
+(big-test-eq "abs" 200000000000000000000 (abs  200000000000000000000))
+
+(test-eq "number->string" "42" (number->string 42))
+(test-eq "number->string" "-42" (number->string -42))
+(test-eq "number->string" "101010" (number->string 42 2))
+(test-eq "number->string" "52" (number->string 42 8))
+(test-eq "number->string" "2a" (number->string 42 16))
+
+(big-test-eq "number->string" "8100000000000000000000"
+	                      (number->string 8100000000000000000000))
+(big-test-eq "number->string" "-8100000000000000000000"
+	                      (number->string -8100000000000000000000))
+
+(test-false "integer?" (integer? "baz"))
+(test-true  "integer?" (integer? 42))
+(test-false "integer?" (integer? #i42))
+
+(big-test-true  "integer?" (integer? 42000000000000000000000000000000))
+
+(test-eq "[integer]" 4711 #d4711)
+(test-eq "[integer]" 4711 #e#d4711)
+(test-eq "[integer]" 4711 #d#e4711)
+(test-eq "[integer]" -4711 #d#e-4711)
+(test-eq "[integer]" -76 #e-76)
+(test-eq "[integer]" 4711 #x1267)
+(test-eq "[integer]" 2054353 #o7654321)
+(test-eq "[integer]" -42 #O-0000000000000000000000052)
+(test-eq "[integer]" 81 #b01010001)
+(test-eq "[integer]" 76 #B000001001100)
+
+(big-test-eq "[integer]" 267242409 #xfedcba9)
+(big-test-eq "[integer]" -267242409 #x#e-FEDCBA9)
+
+(test-eq "floor"    -5.0 (floor -4.3))
+(test-eq "floor"     3.0 (floor 3.5))
+(test-eq "floor"     7   (floor 7))
+(test-eq "ceiling"  -4.0 (ceiling -4.3))
+(test-eq "ceiling"   4.0 (ceiling 3.5))
+(test-eq "ceiling"   7   (ceiling 7))
+(test-eq "truncate" -4.0 (truncate -4.3))
+(test-eq "truncate"  3.0 (truncate 3.5))
+(test-eq "truncate"  7   (truncate 7))
+(test-eq "round"    -4.0 (round -4.3))
+(test-eq "round"     4.0 (round 3.5))
+(test-eq "round"     7   (round 7))
+
+;;
+;; Subtraction.
+;;
+
+(test-eq "-" 0 (-))
+(test-eq "-" -42 (- 42))
+(test-eq "-" 32 (- 42 10))
+(test-eq "-" 21 (- 42 10 11))
+(test-eq "-" 9 (- 42 10 11 12))
+
+(test-eq "-" #i-42 (- #i42))
+(test-eq "-" #i32 (- #i42 #i10))
+
+(big-test-eq "-" -4200000000000000000000 (- 4200000000000000000000))
+(big-test-eq "-" 3200000000000000000000
+	         (- 4200000000000000000000 1000000000000000000000))
+
+(test-eq "-" #i21 (- #i42 #i10 11))
+(test-eq "-" #i21 (- #i42 11 #i10))
+(test-eq "-" #i21 (- 42 #i11 #i10))
+
+(big-test-eq "-" 3199999999999999999989
+	         (- 4200000000000000000000 1000000000000000000000 11))
+(big-test-eq "-" 3199999999999999999989
+	         (- 4200000000000000000000 11 1000000000000000000000))
+(big-test-eq "-" -5199999999999999999989
+	         (- 11 4200000000000000000000 1000000000000000000000))
+
+(big-test-eq "-" 11 (- 4200000000000000000000 4199999999999999999989))
+(big-test-eq "-" -1 (- 4200000000000000000000 4200000000000000000001))
+
+(big-test-eq "-" #x80000000
+	         (- #x4200000000000080000000 #x4200000000000000000000))
+(big-test-eq "-" #x-80000000
+	         (- #x4200000000000000000000 #x4200000000000080000000))
+(big-test-eq "-" #x7fffffff
+	         (- #x420000000000007fffffff #x4200000000000000000000))
+(big-test-eq "-" #x-7fffffff
+	         (- #x4200000000000000000000 #x420000000000007fffffff))
+(big-test-eq "-" #x80000001
+	         (- #x4200000000000080000001 #x4200000000000000000000))
+(big-test-eq "-" #x-80000001
+	         (- #x4200000000000000000000 #x4200000000000080000001))
+
+;;
+;; Multiplication.
+;;
+
+(test-eq "*" 1 (*))
+
+(test-eq "*" 4711 (* 4711))
+(test-eq "*" #i4711 (* #i4711))
+
+(big-test-eq "*" 471100000000000000000000 (* 471100000000000000000000))
+
+(test-eq "*" 56 (* 7 8))
+(test-eq "*" #i56 (* #i7 #i8))
+
+(big-test-eq "*" 560000000000000000000000000000000000000000
+	         (* 700000000000000000000 800000000000000000000))
+
+(test-eq "*" #i14 (* #i7 2))
+(test-eq "*" #i14 (* 2 #i7))
+
+(big-test-eq "*" 1400000000000000000000 (* 200000000000000000000 7))
+(big-test-eq "*" 1400000000000000000000 (* 7 200000000000000000000))
+(big-test-eq "*" (* #i7 200000000000000000000) (* 200000000000000000000 #i7))
+
+(big-test-eq "*" -1400000000000000000000 (* 200000000000000000000 -7))
+(big-test-eq "*" -1400000000000000000000 (* -7 200000000000000000000))
+(big-test-eq "*" -1400000000000000000000 (* -200000000000000000000 7))
+(big-test-eq "*" -1400000000000000000000 (* 7 -200000000000000000000))
+(big-test-eq "*" (* 20000000000000000000 #i-7) (* -20000000000000000000 #i7))
+(big-test-eq "*" (* #i-7 200000000000000000) (* #i7 -200000000000000000))
+
+(big-test-eq "*" (* #i7 2 2000000000000000000) (* 2 #i7 2000000000000000000))
+(big-test-eq "*" (* #i7 2000000000000000000 2) (* 2 #i7 2000000000000000000))
+(big-test-eq "*" (* 2 2000000000000000000 #i7) (* 2000000000000000000 2 #i7))
+(big-test-eq "*" (* 2000000000000000000 #i7 2) (* 2000000000000000000 2 #i7))
+
+(test-eq "*" 8234828 (* 4711 76 23))
+
+(big-test-eq "*" 667021068 (* 4711 76 23 81))
+
+(test-eq "*" 0 (* 4711 0))
+(test-eq "*" 0 (* 0 4711))
+(test-eq "*" #i0 (* #i4711 0))
+(test-eq "*" #i0 (* 0 #i4711))
+
+(big-test-eq "*" 0 (* 471100000000000000000000 0))
+(big-test-eq "*" 0 (* 0 471100000000000000000000))
+(big-test-eq "*" #i0 (* #i42 471100000000000000000000 0))
+(big-test-eq "*" #i0 (* 471100000000000000000000 #i42 0))
+(big-test-eq "*" #i0 (* 0 471100000000000000000000 #i42))
+(big-test-eq "*" #i0 (* 0 #i42 471100000000000000000000))
+(big-test-eq "*" #i0 (* 471100000000000000000000 0 #i42))
+(big-test-eq "*" #i0 (* #i42 0 471100000000000000000000))
+
+;;
+;; Division.
+;;
+
+(test-eq "/" 1 (/))
+(test-eq "/" 0.5 (/ 1 2))
+(test-eq "/" 0.5 (/ 2.0))
+(test-eq "/" 0.5 (/ 2))
+
+(test-eq "/" 100 (/ 1000 10))
+(big-test-eq "/" 100000000000000000000000 (/ 1000000000000000000000000 10))
+(big-test-eq "/" 1000 (/ 1000000000000000000000000 1000000000000000000000))
+
+(big-test-true "/" (inexact? (/ 100000000000000000000)))
+(big-test-true "/" (inexact? (/ 1000100000000000000000000
+				1000000000000000000000000)))
+
+(big-test-eq "/" 1000 (/ 1000000000000000000000000 1000000000000000000000 1))
+
+;;
+;; Addition.
+;;
+
+(test-eq "+" 0 (+))
+
+(test-eq "+" 4711 (+ 4711))
+(test-eq "+" #i4711 (+ #i4711))
+
+(big-test-eq "+" 471100000000000000000000 (+ 471100000000000000000000))
+
+(test-eq "+" 4721 (+ 4711 10))
+(test-eq "+" #i4721 (+ #i4711 #i10))
+(big-test-eq "+" 472100000000000000000000
+	         (+ 471100000000000000000000 1000000000000000000000))
+
+(test-eq "+" #i4721 (+ 4711 #i10))
+(test-eq "+" #i4721 (+ #i10 4711))
+
+(big-test-eq "+" (+ 471100000000000000000000 #i1000000000000000000000)
+	         (+ #i1000000000000000000000 471100000000000000000000))
+(big-test-eq "+" 471100000000000000000010 (+ 471100000000000000000000 10))
+(big-test-eq "+" 471100000000000000000010 (+ 10 471100000000000000000000))
+
+(test-eq "+" #x80000009 (+ #x7fffffff 10))
+(test-eq "+" -1 (+ #x7fffffff #x-80000000))
+
+;;
+;; Symbols.
+;;
+
+(test-true  "symbol?" (symbol? 'x))
+(test-false "symbol?" (symbol? 42))
+(test-false "symbol?" (symbol? "fubar"))
+
+(test-eq "string->symbol" 'fu (string->symbol "fu"))
+(test-eq "symbol->string" "fu" (symbol->string 'fu))
+
+(test-eq "[symbol]" "" (symbol->string (string->symbol "")))
+(test-eq "[symbol]" "(" (symbol->string '\())
+(test-eq "[symbol]" ")" (symbol->string '\)))
+(test-eq "[symbol]" "." (symbol->string '\.))
+(test-eq "[symbol]" "," (symbol->string '\,))
+(test-eq "[symbol]" "'" (symbol->string '\'))
+(test-eq "[symbol]" "`" (symbol->string '\`))
+(test-eq "[symbol]" ",@" (symbol->string '\,@))
+(test-eq "[symbol]" " " (symbol->string '\ ))
+(test-eq "[symbol]" "\\" (symbol->string '\\))
+
+;;
+;; Strings and characters.
+;;
+
+(test-true  "string?" (string? "x"))
+(test-false "string?" (string? 42))
+(test-false "string?" (string? 'fubar))
+
+(test-eq "[string]" "" "")
+(test-eq "[string]" "abc" "abc")
+
+(test-eq "make-string" "" (make-string 0))
+(test-eq "make-string" "A" (make-string 1 #\A))
+(test-eq "make-string" "QQQQQ" (make-string 5 #\Q))
+
+(test-eq "string" "" (string))
+(test-eq "string" "B" (string #\B))
+(test-eq "string" "CDE" (string #\C #\D #\E))
+
+(test-eq "string-length" 0 (string-length ""))
+(test-eq "string-length" 1 (string-length "x"))
+(test-eq "string-length" 7 (string-length "1234567"))
+
+(test-eq "string-ref" #\A (string-ref "ABC" 0))
+(test-eq "string-ref" #\C (string-ref "ABC" 2))
+
+(test-eq "string-set" "QWE" (string-set "QXE" 1 #\W))
+
+(test-true  "string=?" (string=? "" ""))
+(test-true  "string=?" (string=? "woz" "woz"))
+(test-false "string=?" (string=? "" "x"))
+
+(test-false "string<?" (string<? "" ""))
+(test-true  "string<?" (string<? "woy" "woz"))
+(test-false "string<?" (string<? "woz" "woz"))
+(test-false "string<?" (string<? "woz" "woy"))
+
+(test-false "string>?" (string>? "" ""))
+(test-false "string>?" (string>? "woy" "woz"))
+(test-false "string>?" (string>? "woz" "woz"))
+(test-true  "string>?" (string>? "woz" "woy"))
+
+(test-true  "string<=?" (string<=? "" ""))
+(test-true  "string<=?" (string<=? "abc" "abc"))
+(test-true  "string<=?" (string<=? "abc" "abd"))
+(test-false "string<=?" (string<=? "abd" "abc"))
+
+(test-true  "string>=?" (string>=? "" ""))
+(test-true  "string>=?" (string>=? "abc" "abc"))
+(test-false "string>=?" (string>=? "abc" "abd"))
+(test-true  "string>=?" (string>=? "abd" "abc"))
+
+(test-eq "substring" "" (substring "" 0 0))
+(test-eq "substring" "" (substring "fubar" 0 0))
+(test-eq "substring" "f" (substring "fubar" 0 1))
+(test-eq "substring" "ub" (substring "fubar" 1 3))
+(test-eq "substring" "fubar" (substring "fubar" 0 5))
+(test-eq "substring" "" (substring "fubar" 5 5))
+
+(test-eq "string-append" "" (string-append))
+(test-eq "string-append" "" (string-append ""))
+(test-eq "string-append" "" (string-append "" "" ""))
+(test-eq "string-append" "a" (string-append "a" "" ""))
+(test-eq "string-append" "a" (string-append "" "a" ""))
+(test-eq "string-append" "a" (string-append "" "" "a"))
+(test-eq "string-append" "b" (string-append "b"))
+(test-eq "string-append" "bc" (string-append "b" "c"))
+(test-eq "string-append" "bc" (string-append "b" "" "c"))
+(test-eq "string-append" "fubar" (string-append "" "fu" "" "ba" "" "r"))
+
+(test-eq "list->string" "" (list->string '()))
+(test-eq "list->string" "x" (list->string `(#\x)))
+(test-eq "list->string" "xyz" (list->string `(#\x #\y #\z)))
+
+(test-eq "string-copy" "" (string-copy ""))
+(test-eq "string-copy" "ijk" (string-copy "ijk"))
+
+(test-eq "string-fill" "" (string-fill "" #\z))
+(test-eq "string-fill" "zzz" (string-fill "ijk" #\z))
+
+;;
+;; Lists.
+;;
+
+(test-false "pair?" (pair? 'x))
+(test-true  "pair?" (pair? '(x)))
+(test-false "pair?" (pair? 42))
+
+(test-false "null?" (null? 42))
+(test-true  "null?" (null? '()))
+(test-false "null?" (null? 'x))
+(test-false "null?" (null? '(x)))
+
+(test-false "list?" (list? 42))
+(test-true  "list?" (list? '()))
+(test-true  "list?" (list? '(a)))
+(test-false "list?" (list? '(a . b)))
+
+(test-eq "car" 42 (car '(42 . 76)))
+(test-eq "cdr" 76 (cdr '(42 . 76)))
+
+(test-eq    "cons" 'a (car (cons 'a 'b)))
+(test-eq    "cons" 'b (cdr (cons 'a 'b)))
+(test-equal "cons" '(a . b) (cons 'a 'b))
+
+(test-eq    "list" '() (list))
+(test-equal "list" '(42) (list 42))
+(test-equal "list" '(42 43 (x y z)) (list 42 43 '(x y z)))
+
+(test-equal "set-car!" '(4711) ((lambda (x) (set-car! x 4711) x) '(42)))
+(test-equal "set-cdr!" '(42 . 4711) ((lambda (x) (set-cdr! x 4711) x) '(42)))
+
+(test-equal "append" '() (append))
+(test-equal "append" 4711 (append 4711))
+(test-equal "append" '(a . 4712) (append '(a) 4712))
+(test-equal "append" '(a x y . z) (append '(a) '(x y . z)))
+(test-equal "append" '(a b c d e f . 76) (append '(a b c) '(d e) '(f) 76))
+(test-equal "append" '(a (x y) b c d e) (append '(a (x y) b) '(c d) '(e)))
+(test-equal "append" '(a b c . 76) (append '() '(a b c) '() '() 76))
+
+(test-eq "length" 0 (length '()))
+(test-eq "length" 1 (length '(a)))
+(test-eq "length" 2 (length '(a b)))
+(test-eq "length" 3 (length '(a b c)))
+
+(test-eq "list-ref" 'a (list-ref '(a b c) 0))
+(test-eq "list-ref" 'b (list-ref '(a b c) 1))
+(test-eq "list-ref" 'c (list-ref '(a b c) 2))
+
+(test-equal "list-tail" '(a b c) (list-tail '(a b c) 0))
+(test-equal "list-tail" '(b c) (list-tail '(a b c) 1))
+(test-equal "list-tail" '(c) (list-tail '(a b c) 2))
+(test-equal "list-tail" '() (list-tail '(a b c) 3))
+
+(test-false "memq" (memq 42 '()))
+(test-equal "memq" '(42) (memq 42 '(42)))
+(test-equal "memq" '(42 43) (memq 42 '(42 43)))
+(test-equal "memq" '(42 43) (memq 42 '(40 41 42 43)))
+(test-false "memq" (memq 76 '(40 41 42 43)))
+
+(test-equal "reverse" '() (reverse '()))
+(test-equal "reverse" '(4711) (reverse '(4711)))
+(test-equal "reverse" '(c b a) (reverse '(a b c)))
+
+;;
+;; Mappings.
+;;
+
+(test-true  "vector?" (vector? (make-vector 0)))
+(test-false "vector?" (vector? 42))
+
+;; mapping-copy
+;; mapping-keys
+;; mapping-values
+;; mapping->list
+
+;; vector-copy
+
+;;
+;; Vectors.
+;;
+
+(test-true  "vector?" (vector? (make-vector 0)))
+(test-false "vector?" (vector? 42))
+
+(test-equal "[vector]" (make-vector 5 4711) (make-vector 5 4711))
+
+;;
+;; Functions.
+;;
+
+(test-eq "tail recursion" 3628800 ((lambda ()
+				     (define (factorial n)
+				       (define (loop n a)
+					 (if (< n 1)
+					     a
+					     (loop (- n 1) (* a n))))
+				       (loop n 1))
+				     (factorial 1000)
+				     (factorial 10))))
+
+;;
+;; Testsuite completed.
+;;
+
+(display "Testsuite completed successfully.\n")

@@ -1,0 +1,1136 @@
+
+(define TRAP-ERROR       0)
+(define TRAP-CATCH-STACK 1)
+
+;; We need catch & throw.
+(define (catch f)
+  (let ((value (call-with-current-continuation
+		(lambda (return)
+		  (trap-set! TRAP-CATCH-STACK
+			     (cons return (trap-ref TRAP-CATCH-STACK)))
+		  (f)))))
+    (trap-set! TRAP-CATCH-STACK (cdr (trap-ref TRAP-CATCH-STACK)))
+    value))
+
+(define (throw r)
+  (if (trap-ref TRAP-CATCH-STACK)
+      ((car (trap-ref TRAP-CATCH-STACK)) r)
+      (fatal-error "No catch, please insert coin and play again.\n" r)))
+
+;; Define error management.
+((lambda (r)
+   (if (trap-ref TRAP-ERROR)
+       (throw (cons 'ERROR r))
+       (trap-set! TRAP-ERROR r)))
+ (call-with-current-continuation (lambda (return) return)))
+
+(define (error . args)
+  ((trap-ref TRAP-ERROR) args))
+
+(define (error? . args)
+  (if (null? (cdr args))
+      (and (pair? (car args))
+	   (eq? (caar args) 'ERROR))
+      (and (pair? (car args))
+	   (eq? (caar args) 'ERROR)
+	   (eq? (cadar args) (cadr args))
+	   (null? (cddar args)))))
+
+(define (error-display err)
+  (display (car err))
+  (display " --")
+  (for-each (lambda (s) (display " ") (display s)) (cdr err)))
+
+(define (werror . err)
+  (for-each display err)
+  (newline))
+
+;;
+;; Library procedures.
+;;
+
+;; Useful tools.
+(define (not x) (if x #f #t))
+(define = eq?)
+
+;; Compound car/cdr functions.
+(define (caar l) (car (car l)))
+(define (cadr l) (car (cdr l)))
+(define (cdar l) (cdr (car l)))
+(define (cddr l) (cdr (cdr l)))
+
+(define (caaar l) (car (car (car l))))
+(define (caadr l) (car (car (cdr l))))
+(define (cadar l) (car (cdr (car l))))
+(define (cdaar l) (cdr (car (car l))))
+(define (caddr l) (car (cdr (cdr l))))
+(define (cdadr l) (cdr (car (cdr l))))
+(define (cddar l) (cdr (cdr (car l))))
+(define (cdddr l) (cdr (cdr (cdr l))))
+
+(define (cadddr l) (car (cdr (cdr (cdr l)))))
+(define (cadadr l) (car (cdr (car (cdr l)))))
+
+;; (map proc list1 list2 ...)
+(define (map f . x)
+  (if (null? (car x))
+      '()
+      (cons (apply f (list-first x)) (apply map f (list-rest x)))))
+
+;; (for-each proc list1 list2 ...)
+(define (for-each f . x)
+  (if (null? (car x))
+      #f
+      (begin (apply f (list-first x))
+	     (apply for-each f (list-rest x)))))
+
+;; (values obj ...)
+(define (values . things)
+  (call-with-current-continuation
+   (lambda (cont) (apply cont things))))
+
+;;
+;; The compiler.
+;;
+
+(define pc 0)
+(define the-program "")
+
+;;
+;; Lists.
+;;
+(define (list-tagged? exp tag)
+  (and (pair? exp) (eq? (car exp) tag)))
+
+(define (list-union a b)
+  (if (null? a)
+      b
+    (if (memq (car a) b)
+	(list-union (cdr a) b)
+      (cons (car a) (list-union (cdr a) b)))))
+
+(define (list-difference s1 s2)
+  (cond ((null? s1) '())
+        ((memq (car s1) s2) (list-difference (cdr s1) s2))
+        (else (cons (car s1)
+                    (list-difference (cdr s1) s2)))))
+
+;;
+;; Syntax.
+;;
+
+(define (exp-atomic? exp)
+  (or (boolean? exp) (char? exp) (number? exp) (string? exp)))
+
+(define exp-mapping? mapping?)
+
+(define exp-vector? vector?)
+
+(define exp-quoted cadr)
+
+(define exp-variable? symbol?)
+
+(define (exp-set-variable exp)
+  (if (symbol? (cadr exp)) (cadr exp) (caadr exp)))
+
+(define (exp-set-value exp)
+  (if (symbol? (cadr exp))
+      (caddr exp)
+    (exp-define-lambda (cdadr exp) (cddr exp))))
+
+(define (exp-define-lambda params body)
+  (cons 'lambda (cons params body)))
+
+(define (exp-define? exp)
+  (list-tagged? exp 'define))
+
+(define (exp-define-variable exp)
+  (if (symbol? (cadr exp)) (cadr exp) (caadr exp)))
+
+(define (exp-define-value exp)
+  (if (symbol? (cadr exp))
+      (caddr exp)
+    (exp-define-lambda (cdadr exp) (cddr exp))))
+
+(define (exp-begin? exp)
+  (list-tagged? exp 'begin))
+
+(define exp-begin-body cdr)
+
+(define exp-if-predicate cadr)
+
+(define exp-if-consequent caddr)
+
+(define (exp-if-alternative exp)
+  (if (not (null? (cdddr exp)))
+      (cadddr exp)
+      #t))
+
+(define exp-lambda-params cadr)
+
+(define exp-lambda-body cddr)
+
+(define exp-apply-operator cadr)
+
+(define exp-apply-operands cddr)
+
+(define exp-application? pair?)
+
+(define exp-application-operator car)
+
+(define exp-application-operands cdr)
+
+(define exp-first car)
+
+(define exp-rest cdr)
+
+(define (exp-last? seq)
+  (null? (cdr seq)))
+
+;;
+;; Macro expansion.
+;;
+
+(define (compile-and exp target linkage env)
+  (let ((args (cdr exp)))
+    (if (null? args)
+	(compile #t target linkage env)
+	(compile `(if ,(car args) (and ,@(cdr args)) #f)
+		 target linkage env))))
+
+(define (compile-or exp target linkage env)
+  (let ((args (cdr exp)))
+    (if (null? args)
+	(compile #f target linkage env)
+	(compile `(let ((x ,(car args)))
+		    (if x x (or ,@(cdr args))))  target linkage env))))
+
+(define (compile-let exp target linkage env)
+  (define (variables exp) (map car (cadr exp)))
+  (define (values exp)    (map cadr (cadr exp)))
+  (define (body exp)      (cddr exp))
+  (compile `((lambda ,(variables exp) ,@(body exp)) ,@(values exp))
+	   target linkage env))
+
+(define (compile-cond exp target linkage env)
+  (define (predicate exp) (caar exp))
+  (define (datums exp)    (cdar exp))
+  (define (else? exp)     (eq? exp 'else))
+  (define (loop clause)
+    (cond ((null? clause)
+	   #f)
+	  ((else? (predicate clause))
+	   `(begin ,@(datums clause)))
+	  (else
+	   (if (null? (datums clause))
+	       `(let ((tmp ,(predicate clause)))
+		  (if tmp tmp ,(loop (cdr clause))))
+	     `(if ,(predicate clause)
+		  (begin ,@(datums clause))
+		,(loop (cdr clause)))))))
+  (compile (loop (cdr exp)) target linkage env))
+
+(define (exp-quasiquote? exp)
+  (list-tagged? exp 'quasiquote))
+
+(define (compile-quasiquote exp target linkage env)
+  (define (exp-unquote? exp)
+    (list-tagged? exp 'unquote))
+  (define (exp-unquote-splicing? exp)
+    (list-tagged? exp 'unquote-splicing))
+  (define (transform-quasiquote exp level)
+    (cond ((exp-quasiquote? exp)
+	   (transform-quasiquote (exp-quoted exp) (+ level 1)))
+	  ((exp-unquote? exp)
+	   (if (= level 0)
+	       (exp-quoted exp)
+	       (transform-quasiquote (exp-quoted exp) (- level 1))))
+	  ((pair? exp)
+	   (cond ((exp-unquote-splicing? (car exp))
+		  (if (= level 0)
+		      `(append ,(exp-quoted (car exp))
+			       ,(transform-quasiquote (cdr exp) level))
+		      `(cons ,(transform-quasiquote (car exp) (- level 1))
+			     ,(transform-quasiquote (cdr exp) level))))
+		 (else
+		  `(cons ,(transform-quasiquote (car exp) level)
+			 ,(transform-quasiquote (cdr exp) level)))))
+	  (else
+	   `(quote ,exp))))
+  (compile (transform-quasiquote (exp-quoted exp) 0) target linkage env))
+
+(define exp-call/cc-function cadr)
+
+(define (compile-call/cc exp target linkage env)
+  (let ((resume (label-make 'call_cc_resume)))
+    (instruction-append-seqs
+     (compile (exp-call/cc-function exp) 'proc 'next env)
+     (instruction-make-seq '(proc) '(argl val)
+			   `((call_cc ,resume)))
+     (compile-application-operator 'val 'next env)
+     (linkage-end linkage
+		  (if (eq? target 'val)
+		      (instruction-make-seq '() '()
+					    `(,resume))
+		      (instruction-make-seq '(val) '(,target)
+					    `(,resume
+					      (assign ,target val))))))))
+
+(define (compile-current-compiler-environment exp target linkage env)
+  (compile `(quote ,env) target linkage env))
+
+(define (compile-current-environment exp target linkage env)
+  (linkage-end linkage
+	       (instruction-make-seq '() `(,target)
+				     `((assign ,target env)))))
+
+;;
+;; Labels.
+;;
+
+(define label-counter -1)
+
+(define (label-reset)
+  (set! label-counter -1))
+
+(define (label-make name)
+  (set! label-counter (+ 1 label-counter))
+  label-counter)
+
+;;
+;; Environment.
+;;
+
+(define (env-definition-size env)
+  (mapping-length (cdr env)))
+
+(define (env-defined? symbol env)
+  (mapping-ref (cdr env) symbol))
+
+(define (env-define symbol env)
+  (if (env-defined? symbol env)
+      #f
+      (mapping-set! (cdr env) symbol (env-definition-size env))))
+
+(define (env-extend params env)
+  (define (transform m params)
+    (cond ((pair? params)
+	   (mapping-set! m (car params) (mapping-length m))
+	   (transform m (cdr params)))
+	  ((null? params)
+	   m)
+	  ((symbol? params)
+	   (mapping-set! m params (mapping-length m))
+	   m)
+	  (else
+	   (error "Compile error: Unknown type of parameter:" params))))
+  (cons env (transform %() params)))
+
+(define (env-extend-definitions exps env)
+  (for-each (lambda (exp)
+	      (cond ((exp-define? exp)
+		     (env-define (exp-define-variable exp) env))
+		    ((exp-begin? exp)
+		     (env-extend-definitions (exp-begin-body exp) env))))
+	    exps)
+  env)
+
+(define env-lookup
+  (let ((bifs (compiler-bifs)))
+    (define (loop symbol i env)
+      (if (null? env)
+	  (or (mapping-ref bifs symbol)
+	      (error "Unknown symbol:" symbol))
+	  (if (mapping-ref (cdr env) symbol)
+	      (list i (mapping-ref (cdr env) symbol))
+	      (loop symbol (+ i 1) (car env)))))
+    (lambda (symbol env)
+      (loop symbol 0 env))))
+
+;;
+;; Compile.
+;;
+
+(define exp-operator car)
+
+(define (compile exp target linkage env)
+  ((cond ((exp-application? exp)
+	  (if (mapping-ref special-forms (exp-operator exp))
+	      (mapping-ref special-forms (exp-operator exp))
+	      compile-application))
+	 ((exp-variable? exp) compile-variable)
+	 ((exp-atomic? exp)   compile-atomic)
+	 ((exp-mapping? exp)  compile-mapping)
+	 ((exp-vector? exp)   compile-vector)
+	 (else
+	  (error "Compile error: Unknown expression type:" exp)))
+   exp target linkage env))
+
+(define (compile-begin exp target linkage env)
+  (compile-seq (exp-begin-body exp) target linkage env))
+
+(define (compile-seq seq target linkage env)
+  (if (exp-last? seq)
+      (compile (exp-first seq) target linkage env)
+      ;; The following code must be compiled in this order since
+      ;; the compilation may have side-effects on the symbol table!
+      (let ((tmp (compile (exp-first seq) target 'next env)))
+	(instruction-preserve '(env cont)
+		       tmp
+		       (compile-seq (exp-rest seq) target linkage env)))))
+
+(define (compile-atomic exp target linkage env)
+  (linkage-end linkage
+     (instruction-make-seq '() `(,target)
+        (cond ((boolean? exp) `((,(if exp `assign_true `assign_false)
+				 ,target)))
+	      ((char? exp)  `((assign_character ,target ,(char->integer exp))))
+	      ((small-integer? exp) `((assign_small_integer ,target ,exp)))
+	      ((big-integer? exp) `((assign_big_integer ,target ,exp)))
+	      ((inexact? exp)    `((assign_float ,target ,exp)))
+	      ((string?  exp) `((assign_string ,target ,exp)))
+	      (else
+	       (error "Internal error: Unknown atomic type:" exp))))))
+
+(define (compile-mapping exp target linkage env)
+  (compile `(list->mapping
+	     (list ,@(map (lambda (tuple) `(list ,@tuple))
+			  (mapping->list exp)))) target linkage env))
+
+(define (compile-vector exp target linkage env)
+  (compile `(list->vector (list ,@(vector->list exp))) target linkage env))
+
+(define (compile-quote exp target linkage env)
+  (let ((e (exp-quoted exp)))
+    (cond ((exp-atomic? e)
+	   (compile-atomic e target linkage env))
+	  ((null? e)
+	   (linkage-end linkage
+			(instruction-make-seq '() `(,target)
+					      `((assign_nil ,target)))))
+	  ((pair? e)
+	   (compile `(cons (quote ,(car e))
+			   (quote ,(cdr e))) target linkage env))
+	  ((symbol? e)
+	   (linkage-end linkage
+			(instruction-make-seq '() `(,target)
+				     `((assign_symbol ,target
+						      ,(symbol->string e))))))
+	  ((mapping? e)
+	   ;; Note: This is an extremely sub-optimal solution,
+	   ;; but since we are lazy... this will do for now.
+	   (compile `(list->mapping ',(mapping->list e)) target linkage env))
+	  ((vector? e)
+	   ;; Note: This is equally sub-optimal as in the case above.
+	   (compile `(list->vector ',(vector->list e)) target linkage env))
+	  (else
+	   (error "Compile error: Unknown quote type:" e)))))
+
+(define (compile-variable exp target linkage env)
+  (let ((var (env-lookup exp env)))
+    (linkage-end linkage
+		 (instruction-make-seq '(env) (list target)
+			   (if (integer? var)
+			       `((assign_bif ,target ,var))
+			     `((get ,target ,@var)))))))
+
+(define (compile-lambda exp target linkage env)
+  (let ((proc-entry (label-make 'lambda_entry))
+	(after-lambda (label-make 'lambda_end)))
+    (let ((lambda-linkage (if (eq? linkage 'next) after-lambda linkage)))
+      (instruction-append-seqs
+       (instruction-tack-on-seq
+	(linkage-end lambda-linkage
+	   (instruction-make-seq '(env) (list target)
+				 `((assign_lambda ,proc-entry ,target))))
+	(compile-lambda-body exp proc-entry env))
+       after-lambda))))
+
+(define (compile-lambda-args formals n)
+  (cond ((null? formals)
+	 n)
+	((symbol? formals)
+	 (- (+ n 1)))
+	((pair? formals)
+	 (compile-lambda-args (cdr formals) (+ n 1)))
+	(else
+	 (error "Compile error: Unknown type of parameter:" formals))))
+
+(define (compile-lambda-body exp proc-entry env)
+  (let ((formals (exp-lambda-params exp))
+	(env (env-extend-definitions (exp-lambda-body exp)
+				    (env-extend (exp-lambda-params exp) env))))
+    (instruction-append-seqs
+     (instruction-make-seq '(env proc argl) '(env)
+			   `(,proc-entry
+			     (lambda ,(compile-lambda-args formals 0)
+			             ,(env-definition-size env))))
+     (compile-seq (exp-lambda-body exp) 'val 'return env))))
+
+(define (compile-set! exp target linkage env)
+  (linkage-end linkage
+    (instruction-preserve '(env)
+      (compile (exp-set-value exp) target 'next env)
+      (instruction-make-seq `(env ,target) `(,target)
+	      `((set ,target ,@(env-lookup (exp-set-variable exp) env)))))))
+
+(define (compile-if exp target linkage env)
+  (let ((t-branch (label-make 'if_true))
+        (f-branch (label-make 'if_false))                    
+        (after-if (label-make 'if_end)))
+    (let ((consequent-linkage (if (eq? linkage 'next) after-if linkage)))
+      (let ((p-code (compile (exp-if-predicate exp) 'val 'next env))
+            (c-code
+             (compile
+              (exp-if-consequent exp) target consequent-linkage env))
+            (a-code
+             (compile (exp-if-alternative exp) target linkage env)))
+        (instruction-preserve '(env cont)
+         p-code
+         (instruction-append-seqs
+          (instruction-make-seq '(val) '()
+           `((branch ,f-branch)))
+          (instruction-parallel-seqs
+           (instruction-append-seqs t-branch c-code)
+           (instruction-append-seqs f-branch a-code))
+          after-if))))))
+
+;;
+;; Applications are complicated...
+;;
+
+(define (compile-apply exp target linkage env)
+  (instruction-preserve '(env cont)
+      (compile-apply-operands
+          ;; It's somewhat sub-optimal to make a new
+          ;; list using (list ...) and then copy everything
+          ;; with (append ...).
+	  (let ((tmp (reverse (exp-apply-operands exp))))
+	    (list (compile `(append (list ,@(reverse (cdr tmp)))
+				    (list-copy ,(car tmp)))
+			   'val 'next env))))
+      (instruction-preserve '(env cont argl)
+		        (compile (exp-apply-operator exp) 'proc 'next env)
+		        (compile-application-operator target linkage env))))
+
+(define (compile-apply-operands operands)
+  (if (null? operands)
+      (instruction-make-seq '() '(argl) '((assign_nil argl)))
+      (compile-application-operand-loop
+          (instruction-append-seqs
+	     (car operands)
+	     (instruction-make-seq '(val) '(argl)
+				   '((assign argl val))))
+	    (cdr operands))))
+
+(define (compile-application exp target linkage env)
+  (instruction-preserve '(env cont)
+	   (compile-application-operands (reverse (map (lambda (operand)
+					      (compile operand 'val 'next env))
+					    (exp-application-operands exp))))
+      (instruction-preserve '(env cont argl)
+		    (compile (exp-application-operator exp) 'proc 'next env)
+		    (compile-application-operator target linkage env))))
+
+(define (compile-application-operand-loop operand operands)
+  (if (null? operands)
+      operand
+      (instruction-preserve '(env)
+	      operand
+	      (compile-application-operand-loop
+	           (instruction-preserve '(argl)
+			    (car operands)
+			    (instruction-make-seq '(val argl) '(argl)
+						  '((cons argl val argl))))
+		    (cdr operands)))))
+
+(define (compile-application-operands operands)
+  (if (null? operands)
+      (instruction-make-seq '() '(argl) '((assign_nil argl)))
+      (compile-application-operand-loop
+          (instruction-append-seqs
+	     (car operands)
+	     (instruction-make-seq '(val) '(argl)
+				   '((list argl val))))
+	    (cdr operands))))
+
+(define (compile-application-operator target linkage env)
+  (define (application-lambda target linkage env)
+    (instruction-make-seq '(proc env) instruction-all-regs-old
+	     (if (eq? target 'val)
+		 (if (eq? linkage 'return)
+		     `((apply_lambda))
+		     `((assign_label ,linkage)
+		       (apply_lambda)))
+		 (if (eq? linkage 'return)
+		     (error "Internal error: Return linkage not val:" target)
+		     (let ((proc-return (label-make 'proc_return)))
+		       `((assign_label ,proc-return)
+			 (apply_lambda)
+			 ,proc-return
+			 (assign ,target val)
+			 (goto ,linkage)))))))
+  (define (application-bif target linkage env)
+    (linkage-end linkage
+		 (instruction-make-seq '(proc argl) `(,target)
+				       `((apply_bif ,target)))))
+  (let ((branch (label-make 'apply_primitive))
+        (end    (label-make 'apply_end)))
+    (instruction-append-seqs
+     (instruction-make-seq '(proc) '()
+			   `((branch_bif ,branch)))
+     (instruction-parallel-seqs
+      (application-lambda target (if (eq? linkage 'next) end linkage) env)
+      (instruction-append-seqs branch
+			       (application-bif target linkage env)))
+     end)))
+
+(define special-forms
+  %('and  : compile-and
+    'or   : compile-or
+    'let  : compile-let
+    'cond : compile-cond
+    
+    'quote      : compile-quote
+    'quasiquote : compile-quasiquote
+    
+    'call-with-current-continuation : compile-call/cc
+	    
+    'current-environment          : compile-current-environment
+    'current-compiler-environment : compile-current-compiler-environment
+      
+    'set!   : compile-set!
+    'define : compile-set!
+    'if     : compile-if
+    'begin  : compile-begin
+    'apply  : compile-apply
+    'lambda : compile-lambda))
+
+;;
+;; Link
+;;
+
+(define (enumerate-mapping l)
+  (define (loop m l n)
+    (if (null? l)
+	m
+	(begin (mapping-set! m (car l) n)
+	       (loop m (cdr l) (+ 1 n)))))
+  (loop (make-mapping) l 0))
+
+(define instruction-code
+  (let ((m (enumerate-mapping '(exit
+				save
+				restore
+				list
+				cons
+				apply_bif
+				apply_lambda
+				assign
+				assign_nil
+				assign_true
+				assign_false
+				assign_small_integer
+				assign_string
+				assign_symbol
+				assign_bif
+				assign_lambda
+				assign_label
+				call_cc
+				branch_bif
+				goto
+				jump
+				branch
+				lambda
+				define
+				get
+				set
+				env_extend
+				assign_undefined
+				assign_character
+				assign_float
+				load_env
+				assign_big_integer))))
+    (lambda (instr)
+      (or (mapping-ref m instr)
+	  (error "Illegal instruction:" instr)))))
+
+(define instruction-register
+  (let ((m (enumerate-mapping '(argl
+				cont
+				env
+				proc
+				val))))
+    (lambda (reg)
+      (or (mapping-ref m reg)
+	  (error "Illegal register:" reg)))))
+
+(define instruction-all-regs-old
+  '(argl
+    cont
+    env
+    proc
+    val))
+
+(define (instruction-make-seq reg-needs reg-modifies stmts)
+  (list reg-needs reg-modifies stmts))
+
+(define (instruction-empty-seq)
+  (instruction-make-seq '() '() '()))
+
+(define (instruction-stmts s)
+  (if (integer? s) (list s) (caddr s)))
+
+(define (instruction-needed s)
+  (if (integer? s) '() (car s)))
+
+(define (instruction-modified s)
+  (if (integer? s) '() (cadr s)))
+
+(define (instruction-needs? seq reg)
+  (memq reg (instruction-needed seq)))
+
+(define (instruction-modifies? seq reg)
+  (memq reg (instruction-modified seq)))
+
+(define (instruction-preserve regs seq1 seq2)
+  (if (null? regs)
+      (instruction-append-seqs seq1 seq2)
+      (let ((first-reg (car regs)))
+        (if (and (instruction-needs? seq2 first-reg)
+                 (instruction-modifies? seq1 first-reg))
+            (instruction-preserve (cdr regs)
+               (instruction-make-seq
+		(list-union (list first-reg) (instruction-needed seq1))
+		(list-difference (instruction-modified seq1) (list first-reg))
+		(append `((save ,first-reg))
+			(instruction-stmts seq1)
+			`((restore ,first-reg))))
+	       seq2)
+            (instruction-preserve (cdr regs) seq1 seq2)))))
+
+(define (instruction-append-seqs . seqs)
+  (define (append-two-seqs seq1 seq2)
+    (instruction-make-seq
+            (list-union (instruction-needed seq1)
+			(list-difference (instruction-needed seq2)
+					 (instruction-modified seq1)))
+	    (list-union (instruction-modified seq1)
+			(instruction-modified seq2))
+	    (append (instruction-stmts seq1)
+		    (instruction-stmts seq2))))
+  (define (append-seq-list seqs)
+    (if (null? seqs)
+        (instruction-empty-seq)
+      (append-two-seqs (car seqs)
+		       (append-seq-list (cdr seqs)))))
+  (append-seq-list seqs))
+
+(define (instruction-parallel-seqs seq1 seq2)
+  (instruction-make-seq (list-union (instruction-needed seq1)
+				    (instruction-needed seq2))
+			(list-union (instruction-modified seq1)
+				    (instruction-modified seq2))
+			(append (instruction-stmts seq1)
+				(instruction-stmts seq2))))
+
+(define (instruction-tack-on-seq seq body-seq)
+  (instruction-make-seq (instruction-needed seq)
+			(instruction-modified seq)
+			(append (instruction-stmts seq)
+				(instruction-stmts body-seq))))
+
+(define (linkage-end linkage instruction-seq)
+  (instruction-preserve '(cont)
+			instruction-seq
+			(linkage-compile linkage)))
+
+(define (linkage-compile linkage)
+  (cond ((eq? linkage 'return)
+         (instruction-make-seq '(cont env) '()
+			       '((jump))))
+        ((eq? linkage 'next)
+         (instruction-empty-seq))
+        (else
+         (instruction-make-seq '() '()
+			       `((goto ,linkage))))))
+
+;;
+;; Assemble.
+;;
+
+(define assemble-label? integer?)
+
+(define (assemble-instruction instr)
+  (define (operand args)
+    (cond ((null? args)
+	   '())
+	  ((symbol? (car args))
+	   (cons (instruction-register (car args)) (operand (cdr args))))
+	  ((string? (car args))
+	   (append (small-integer->bytes (string-length (car args)))
+		   (map char->integer (string->list (car args)))
+		   (operand (cdr args))))
+	  ((small-integer? (car args))
+	   (append (small-integer->bytes (car args)) (operand (cdr args))))
+	  ((big-integer? (car args))
+	   (let ((s (number->string (car args) 16)))
+	     (append (small-integer->bytes (+ 1 (string-length s)))
+		     (string->list s) '(0) (operand (cdr args)))))
+	  ((inexact? (car args))
+	   (append (float->bytes (car args)) (operand (cdr args))))
+	  (else
+	   (error "Unknown operand:" (car args)))))
+  (if (list? instr)
+      (cons (instruction-code (car instr)) (operand (cdr instr)))))
+
+(define (assemble-labels program)
+  (define (instr-length instrs)
+    (cond ((null? instrs)
+	   0)
+	  ((symbol? (car instrs))
+	   (+ 1 (instr-length (cdr instrs))))
+	  ((string? (car instrs))
+	   (+ (small-integer-size)
+	      (string-length (car instrs)) (instr-length (cdr instrs))))
+	  ((small-integer? (car instrs))
+	   (+ (small-integer-size) (instr-length (cdr instrs))))
+	  ((big-integer? (car instrs))
+	   (+ (small-integer-size)
+	      (string-length (number->string (car instrs) 16)) 1
+	      (instr-length (cdr instrs))))
+	  ((inexact? (car instrs))
+	   (+ (float-size) (instr-length (cdr instrs))))
+	  (else
+	   (error "Unknown operand:" (car instrs)))))
+  (define (number-of-labels program)
+    (define (loop program n)
+      (if (null? program)
+	  n
+	  (loop (cdr program) (+ n (if (assemble-label? (car program)) 1 0)))))
+    (loop program 0))
+  (define (loop program i labels)
+    (cond ((null? program)
+	   i)
+	  ((assemble-label? (car program))
+	   (vector-set! labels (car program) i)
+	   (loop (cdr program) i labels))
+	  (else
+	   (loop (cdr program) (+ i (instr-length (car program))) labels))))
+  (define (reallocate program labels)
+    (for-each (lambda (instr)
+		(if (list? instr)
+		    (if (or (eq? 'assign_label (car instr))
+			    (eq? 'assign_lambda (car instr))
+			    (eq? 'call_cc (car instr))
+			    (eq? 'branch_bif (car instr))
+			    (eq? 'branch (car instr))
+			    (eq? 'goto (car instr)))
+			(set-car! (cdr instr)
+				  (vector-ref labels (cadr instr))))))
+	      program))
+  (let ((labels (make-vector (number-of-labels program))))
+    (set! pc (loop program pc labels))   ;; FIXME
+    (reallocate program labels)))
+
+(define (assemble-program program no-bull)
+  (label-reset)
+  (let ((p (caddr (if (= pc 0) ;; #f
+		      (instruction-append-seqs
+		       (instruction-make-seq '() `() `((load_env)))
+		       program)
+		      (if no-bull
+			  program
+			  (instruction-append-seqs
+			   (instruction-make-seq '() '() '((save env)
+							   (save cont)))
+			   program
+			   (instruction-make-seq '() '()'((restore cont)
+							  (restore env)))))))))
+    (assemble-labels p)
+    (set! the-program
+	  (string-append
+	   (cons the-program
+		 (map (lambda (instr)
+			(if (pair? instr)
+			    (list->string (assemble-instruction instr))
+			    ""))
+		      p))))))
+
+;; Lexer.
+
+(define (token-row token)
+  (cadr token))
+
+(define (token-col token)
+  (cddr token))
+
+(define (compile-error token msg)
+  (error (string-append (number->string (token-row token)) ":"
+			(number->string (token-col token)) ": "	msg)))
+
+(define (read-token script)
+  ((lambda (tokens position)
+	(lambda ()
+	  (cond ((< (+ position 3) (vector-length tokens))
+		 (set! position (+ position 3))
+		 (cons (vector-ref tokens position)
+		       (cons (vector-ref tokens (+ 1 position))
+			     (vector-ref tokens (+ 2 position)))))
+		(else
+		 #f))))
+   (lexer script) -3))
+
+(define parenthesify
+  ((lambda ()
+     (define (special-token exp token level)
+       (if (= level 0)
+	   (list (car exp) (parenthesify token level))
+	   (let ((tmp (parenthesify token 0)))
+	     (cons (list (car exp) tmp) (parenthesify token level)))))
+     
+     (define (mapping-rebuild l)
+       (if (null? l)
+	   '()
+	   (if (or (not (list? l)) (< (length l) 3))
+	       (error "Incomplete mapping.")
+	       (if (eq? '\: (cadr l))
+		   (cons (list (car l) (caddr l))
+			 (mapping-rebuild (cdddr l)))
+		   (error "Mapping elements not separated with `:'." l)))))
+     
+     (define (token-dot t token level)
+       (if (= level 0)
+	   (compile-error t "Unexpected `.' outside list.")
+	   (let ((tmp (parenthesify token level)))
+	     (if (null? (cdr tmp))
+		 (car tmp)
+		 (compile-error (cadr tmp)
+				"Unexpected token after dotted pair.")))))
+
+     (define (parenthesis-left t token level)
+       (let ((tmp (parenthesify token (+ 1 level))))
+	    (if (= level 0)
+		tmp
+		(cons tmp (parenthesify token level)))))
+     
+     (define (parenthesis-right t token level)
+       (if (< level 1)
+	      (compile-error t "Unexpected `)'.")
+	      '()))
+     
+     (define (mapping-left t token level)
+       (let ((tmp (list->mapping
+		   (mapping-rebuild (parenthesify token (+ 1 level))))))
+	    (if (= level 0)
+		tmp
+		(cons tmp (parenthesify token level)))))
+     
+     (define (vector-left t token level)
+       (let ((tmp (list->vector (parenthesify token (+ 1 level)))))
+	    (if (= level 0)
+		tmp
+		(cons tmp (parenthesify token level)))))
+          
+     (define tokens
+	     %('\'   : (lambda (t token level)
+			(special-token (cons 'quote (cdr t)) token level))
+	       '\`   : (lambda (t token level)
+			(special-token (cons 'quasiquote (cdr t)) token level))
+	       '\,   : (lambda (t token level)
+			(special-token (cons 'unquote (cdr t)) token level))
+	       '\,@  : (lambda (t token level)
+			(special-token
+			         (cons 'unquote-splicing (cdr t)) token level))
+	       '\.   : token-dot
+	       '\(   : parenthesis-left
+	       '%\(  : mapping-left
+	       '\#\( : vector-left
+	       '\)   : parenthesis-right))
+     
+     (define (token-atom token)
+       (if (symbol? (car token))
+	   (unquote-symbol (car token))
+	   (car token)))
+     
+     (lambda (token level)
+ 	 (define t (token))
+	 (if t
+	     (if (mapping-ref tokens (car t))
+		 ((mapping-ref tokens (car t)) t token level)
+		 (if (= level 0)
+		     (token-atom t)
+		     (cons (token-atom t) (parenthesify token level))))
+	     (if (= level 0)
+		 #f   ;; Use end-of-file object?
+		 (error "Unexpected end of file.")))))))
+
+(define (read-file filename)
+  (let ((r (read-token (or (read-binary-file filename)
+			   (fatal-error "Couldn't read file:" filename)))))
+    (define (loop exp)
+      (if exp
+	  (cons exp (loop (parenthesify r 0)))
+	  '()))
+  (loop (parenthesify r 0))))
+
+(define (read str)
+  (let ((r (read-token str)))
+    (define (loop exp)
+      (if exp
+	  (cons exp (loop (parenthesify r 0)))
+	  '()))
+  (loop (parenthesify r 0))))
+
+(define (compile-program filename exps env)
+  (set! pc 0)
+  (set! the-program "")
+  (env-extend-definitions exps (car env))
+  (assemble-program (instruction-make-seq '() '()
+	       `((env_extend ,(env-definition-size (car env))))) #t)
+  (for-each (lambda (exp)
+	      (assemble-program (compile exp 'val 'next (car env)) #f))
+	    exps)
+  (assemble-program (instruction-make-seq '(cont) '() '((jump))) #t)
+  (list->vector `(,filename ,the-program ,(cdr env))))
+
+(define (program-dump source destination env)
+  (let ((code (vector-ref (compile-program source (read-file source) env) 1)))
+    (write-binary-file destination
+		       (string-append "unsigned char bootstrap_code[] =\n{ "
+				      (compiler-program->c code)
+				      " };\n\nINT bootstrap_size = "
+				      (number->string (string-length code))
+				      ";\n"))))
+
+(define (eval exp env)
+  ((load-program (compile-program "(eval)" `(,exp) env))))
+
+(define (load filename env)
+  ((load-program (compile-program filename (read-file filename) env))))
+
+(define (empty-environment)
+  (cons '(() . %()) '(() . ())))
+
+(define interaction-environment-value
+  (cons (current-compiler-environment) (current-environment)))
+
+(define (interaction-environment)
+  (define (copy-compiler-environment env)
+    (if (null? env)
+	'()
+	(cons (copy-compiler-environment (car env)) (mapping-copy (cdr env)))))
+  (define (copy-environment env)
+    (if (null? env)
+	'()
+	(cons (copy-environment (car env)) (list-copy (cdr env)))))
+  (cons (copy-compiler-environment (car interaction-environment-value))
+	(copy-environment (cdr interaction-environment-value))))
+
+(define (repl)
+  (define env (interaction-environment))
+
+  (define (display-version)
+    (display (string-append (shoe-version)
+			    " running Shoe incremental frontend.\n")))
+
+  (define (read)
+    (display "> ")
+    (define (until-all buffer)
+      (define r (read-binary))
+      (define s (string-append buffer r))
+      (cond ((= 0 (string-length r))
+	   #f)
+	    ((eq? ".\n" r)
+	     (display "Input buffer flushed.\n")
+	     '())
+	    ((eq? "new\n" s)
+	     (display "Environment flushed.\n")
+	     (set! env (interaction-environment))
+	     '())
+	    ((eq? "help\n" s)
+	     (display-version)
+	     (display "This is an interactive tool in which you can write any Shoe function, \n")
+	     (display "expression or variable.  There are also some extra commands:\n")
+	     (display "\n")
+	     (display "  help     Display this text.\n")
+	     (display "  new      Clear all functions and variables.\n")
+	     (display "  .        Abort current input batch.\n")
+	     (display "  ^D       Exit this program.\n")
+	     '())
+	    (else
+	     (let ((exps (catch
+			  (lambda ()
+			    (let ((r (read-token s)))
+			      (define (loop exp)
+				(if exp
+				    (cons exp (loop (parenthesify r 0)))
+				    '()))
+			      (loop (parenthesify r 0)))))))
+	       (if (error? exps "Unexpected end of file.")
+		   (begin (display ">> ") (until-all s))
+		   exps)))))
+    (until-all ""))
+
+  (display-version)
+
+  (define (loop)
+    (define exps (read))
+    (if exps
+	(begin
+	  (if (error? exps)
+	      (error-display exps)
+	      (for-each (lambda (exp)
+			  (let ((r (catch (lambda () (eval exp env)))))
+			    (if (error? r)
+				(error-display r)
+				(display r))
+			    (newline)))
+			exps))
+	  (loop))
+	(display "Terminal closed.\n")))
+  (loop))
+
+(let ((source #f)
+      (cmd #t)
+      (destination #t)
+      (help #f)
+      (version #f)
+      (dump #f))
+  (for-each (lambda (arg)
+	      (cond ((not destination)
+		     (set! destination arg))
+		    ((not cmd)
+		     (set! cmd arg))
+		    ((or (eq? "-d" arg) (eq? "--dump" arg))
+		     (set! destination #f)
+		     (set! dump #t))
+		    ((or (eq? "-e" arg) (eq? "--execute" arg))
+		     (set! cmd #f))
+		    ((or (eq? "-h" arg) (eq? "--help" arg))
+		     (set! help #t))
+		    ((or (eq? "-v" arg) (eq? "--version" arg))
+		     (set! version #t))
+		    (else
+		     (set! source arg))))
+	    (cdr (vector->list (invocation-arguments))))
+  (cond (version
+	 (display (string-append (shoe-version)
+				 ".  Copyright (c) 1999 Fredrik Noring.\n")))
+	(help
+	 (display "Usage: shoe [options] [script]\n\n")
+	 (display "Options:\n")
+	 (display "  -d, --dump <file>     Dumps the program as a C file.\n")
+	 (display "  -e, --execute <cmd>   Run the given command instead of the script.\n")
+	 (display "  -h, --help            Display this help and exit.\n")
+	 (display "  -v, --version         Display version and exit.\n")
+	 (display "\nWhen no script is given, Shoe will start in interactive mode.\n"))
+	(else
+	 (cond ((not (boolean? cmd))
+		(eval `(begin ,@(read cmd)) (interaction-environment)))
+	       ((not source)
+		(repl))
+	       (dump
+		(program-dump source destination (empty-environment)))
+	       (else
+		(load source (interaction-environment)))))))

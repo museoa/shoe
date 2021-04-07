@@ -1,0 +1,251 @@
+# Copyright (c) by Fredrik Noring.
+
+# Version number.
+AC_REVISION("$Id: configure.in,v 1.6 1999/10/10 22:28:34 noring Exp $")
+
+AC_INIT(kernel.c)
+AC_CONFIG_HEADER(universe.h)
+
+# We want an absolute path to the source directory.
+case "$srcdir" in
+    /*)
+    ;;
+    *)
+	oldsrcdir="$srcdir"
+	srcdir="`cd \"$srcdir\";pwd`"
+	AC_MSG_WARN([ Converted $oldsrcdir to $srcdir, If this does not work, please use an absolute path to the configure script. ])
+    ;;
+esac
+
+#
+# Checks for programs.
+#
+
+AC_PROG_CC
+AC_PROG_INSTALL
+AC_PROG_CPP
+AC_PROG_RANLIB
+AC_SET_MAKE
+
+#
+# Setup and build smartlink.
+#
+
+LIBDIR=`(cd $srcdir/../lib ; pwd)`
+BINDIR=`(cd $srcdir/../bin ; pwd)`
+BUILDDIR=`pwd`
+
+AC_SUBST(LIBDIR)
+AC_SUBST(BINDIR)
+AC_SUBST(BUILDDIR)
+
+AC_CHECK_HEADERS(stdlib.h string.h unistd.h sys/stat.h sys/types.h sys/errno.h)
+
+if test -x /usr/bin/uname 2>/dev/null; then
+  UNAME=`/usr/bin/uname -sr`
+elif test -x /bin/uname 2>/dev/null; then
+  UNAME=`/bin/uname -sr`
+else
+  UNAME=unknown
+fi
+
+# FIXME: Add proper tests
+case "$UNAME" in
+  OSF1\ V4.*)
+    AC_DEFINE(USE_RPATH)
+    ;;
+  IRIX\ 6.*)
+    AC_DEFINE(USE_RPATH)
+    ;;
+  IRIX\ 5.*)
+    AC_DEFINE(USE_RPATH)
+    ;;
+  SunOS\ 5.*)
+    if test "$TCC" = "yes"; then
+      # tcc doesn't know about -R
+      AC_DEFINE(USE_Wl_R)
+    else
+      AC_DEFINE(USE_R)
+    fi
+    ;;
+  Linux\ 2.*)
+    AC_DEFINE(USE_Wl)
+    ;;
+  *)
+    AC_DEFINE(USE_LD_LIBRARY_PATH)
+    ;;
+esac
+
+# Strip smartlink from $CC.
+REALCC="`echo $CC|sed -e 's/.*smartlink //'`"
+
+# Fix a smartlink.
+SMARTLINK="$BUILDDIR/smartlink"
+
+AC_MSG_CHECKING(if $SMARTLINK exists is up to date and works)
+if ls -1tr "$SMARTLINK${ac_exeext}" "$srcdir/smartlink.$ac_ext" 2>/dev/null | head -1 | grep "smartlink.$ac_ext" >/dev/null 2>&5 && "$SMARTLINK" -v >/dev/null 2>&5; then
+  AC_MSG_RESULT(yes)
+else
+  AC_MSG_RESULT(no)
+
+  if echo foo "$CC" | egrep rntc. >/dev/null; then
+    echo Warning: rntcc/rntcl detected. Using the smartlink /bin/sh script.
+    SMARTLINK="$BINDIR/smartlink"
+  else
+    rm -f "$SMARTLINK"
+
+    AC_MSG_CHECKING(whether smartlink compiles)
+
+    link_cmd='${REALCC-cc} -o smartlink${ac_exeext} $CFLAGS -I. $CPPFLAGS $LDFLAGS $srcdir/smartlink.$ac_ext $LIBS 2>&5'
+    if { (eval echo Compiling smartlink: \"$link_cmd\") 1>&5; (eval $link_cmd) 2>&5; } && "$BUILDDIR/smartlink" -v >/dev/null 2>&5; then
+      AC_MSG_RESULT(yes)
+    else
+      AC_MSG_RESULT(no - use the sh script)
+
+      SMARTLINK="$BINDIR/smartlink"
+    fi
+  fi
+fi
+
+CC="$SMARTLINK $REALCC"
+shoe_cv_prog_CC="$CC"
+
+AC_SUBST(SMARTLINK)
+AC_SUBST(REALCC)
+export REALCC SMARTLINK
+
+#
+# Packages.
+#
+
+AC_ARG_WITH(gmp, [  --without-gmp           no support for big integers])
+
+#
+# Check for GMP.
+#
+
+if test ! x$with_gmp = xno
+then
+  AC_CHECK_HEADERS(gmp2/gmp.h)
+  AC_CHECK_LIB(gmp2, mpz_set_d)
+  if test "$ac_cv_header_gmp2_gmp_h$ac_cv_lib_gmp2_mpz_set_d" = "yesyes"
+  then
+    echo Using gmp2.
+  else
+    AC_CHECK_HEADERS(gmp.h)
+    if test $ac_cv_header_gmp_h = yes
+    then
+      AC_CHECK_LIB(gmp, mpz_set_d)
+    fi
+  fi
+fi
+
+#
+# Check headers used.
+#
+
+AC_CHECK_HEADERS(stdarg.h stdio.h fcntl.h math.h)
+
+AC_CHECK_FUNCS(calloc realloc free memcpy memcmp memset)
+
+AC_CHECK_LIB(m, floor)
+AC_CHECK_FUNCS(ceil)
+
+#
+# Customized check-function.
+#
+
+define(SHOE_CHECK_FUNCTION,
+[AC_MSG_CHECKING(for working $1)
+ AC_CACHE_VAL(shoe_cv_func_$1,
+              [AC_TRY_RUN([$2], shoe_cv_func_$1=yes,
+	                        shoe_cv_func_$1=no,
+				shoe_cv_func_$1=no)])
+ AC_MSG_RESULT([$]shoe_cv_func_$1)
+ if test [$]shoe_cv_func_$1 = yes; then
+   AC_DEFINE(translit(HAVE_$1,[a-z],[A-Z]))
+ fi
+])
+
+#
+# Check various functions.
+#
+
+#
+# Check byteorder.
+#
+
+AC_MSG_CHECKING(byteorder)
+AC_CACHE_VAL(shoe_cv_hardware_byteorder,
+[AC_TRY_RUN([
+   #include <stdio.h>
+
+   #if SIZEOF_INT == 4
+   #  define T int
+   #else
+   #  define T long
+   #endif
+   
+   int main()
+   {
+     FILE *f;
+     T a;
+     int e;
+     
+     for(e = 0; e < sizeof(T); e++)
+       ((char *)&a)[e] = (e+1) % 10;
+
+     f = fopen("conftest.out.byteorder", "w");
+     for(e = 0; e < sizeof(T); e++)
+     {
+       fprintf(f, "%d", (int)(a & 255));
+       a >>= 8;
+     }
+     fprintf(f, "\n");
+     fclose(f);
+  
+     return 0;
+}],
+shoe_cv_hardware_byteorder=`cat conftest.out.byteorder`,
+shoe_cv_hardware_byteorder=0,
+shoe_cv_hardware_byteorder=0
+)])
+
+AC_MSG_RESULT($shoe_cv_hardware_byteorder)
+AC_DEFINE_UNQUOTED(SHOE_BYTEORDER, $shoe_cv_hardware_byteorder)
+
+#
+# Setup compiler flags.
+#
+
+WARN=""
+OPTIMISE=""
+
+if test "$GCC" = yes; then
+  WARN="-W -Wall -Wpointer-arith -Wno-unused"
+fi
+
+#
+# Compiler summary.
+#
+
+echo
+echo "Compiler summary:"
+echo
+echo "  Compiler: $CC"
+echo "    Linker: $LD"
+echo
+echo "    CFLAGS: $CFLAGS"
+echo "  CPPFLAGS: $CPPFLAGS"
+echo "   LDFLAGS: $LDFLAGS"
+echo "      LIBS: $LIBS"
+echo "      WARN: $WARN"
+echo "  OPTIMISE: $OPTIMISE"
+echo
+echo "    prefix: $prefix"
+echo
+
+AC_SUBST(WARN)
+AC_SUBST(OPTIMISE)
+
+AC_OUTPUT(Makefile)

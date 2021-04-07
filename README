@@ -1,0 +1,133 @@
+Shoe by Fredrik Noring <noring@nocrew.org> 1999.
+
+
+WHAT IS SHOE?
+
+  Shoe is a Scheme driver written by Fredrik Noring.  It aims
+  towards R5RS compliance.
+
+  Many features are implemented, as well as a few extensions.
+
+  Shoe is distributed under the GNU General Public License--see
+  the accompanying COPYING file for more details. 
+
+
+COMPILING & INSTALLING SHOE
+
+  1. Go to the `src' directory.
+
+  2. Run `./configure'.  This will generate some customised files
+     needed by the compiler.
+
+  3. Run `make'.
+
+  4. Optionally, you may run `make check'.  This will run the driver
+     through a number of self-tests.
+
+  5. Run `make install'.
+
+  6. Run `shoe', with for example the `--help' option.
+
+
+WHAT IS R5RS?
+
+  R5RS is the "Revised(5) Report on the Algorithmic Language Scheme"
+  which describes the Scheme language.  It is included as a PDF in
+  the `doc' directory.
+
+
+SO, HOW DOES IT COMPARE TO SHOE?
+
+  Shoe implements a large portion of R5RS.  There are also a few
+  additions:
+
+    · Unicode, UTF8 and wide-strings are supported (very crudely so far).
+
+    · Arbitrary precision integers are supported (it is not required by
+      R5RS) if GMP is installed.
+
+    · Vectors (and mappings) do not have to quoted, and unlike Guile,
+      they are not implicitly quoted.  Instead all values in a vector
+      (and a mapping respectively) are evaluated.
+
+      Example:
+
+         #((+ 1 2 3 4) 42 'foo)
+         ---> #(10 42 foo)
+
+    · A new datatype called `mapping'.  It behaves almost lika vectors,
+      except that you may reference it using other types than integers.
+      Mappings are in most cases almost as fast as vectors.
+
+      Syntax: %(key1 : value2     key2 : value2     key3 : value3 ...)
+
+      Subset of operations (similar to vectors): mapping-ref, mapping-set!
+      mapping-remove!, mapping-length, mapping->list, list->mapping,
+      mapping?, mapping-keys, mapping-values, mapping-copy
+
+      Example:
+
+         (define m %("flowers" : '(hepatica tulip)
+                     "planets" : '#(mercury venus earth)
+                     'shoe     : "Shoe is a Scheme driver"
+                     4711      : "some value"))
+
+         (mapping-ref m "flowers")
+         ---> (hepatica lily)
+
+         (mapping-ref m 4711)
+         ---> "some value"
+         (mapping-set! m 4711 42)
+         (mapping-ref m 4711)
+         ---> 42
+
+         (mapping-ref m "fruits")
+         ---> #f
+
+         (mapping-remove! m "flowers")
+         (mapping-ref m "flowers")
+         ---> #f
+
+         m
+         ---> %("planets" : #(mercury venus earth)
+                'shoe     : "Shoe is a Scheme driver"
+                 4711     : 42)
+
+  Apart for general misfeatures (there are plenty, but I'm working
+  on them), these will probably not change:
+
+    · Dynamic-wind is not supported.
+
+    · Identifiers are case sensitive.
+
+    · Strings are always immutable, e.i. `string-set!' and
+      `string-fill!' are replaced with their non-destructive
+      variants represented by `string-set' and `string-fill'
+      respectively--both which return a newly allocated string.
+
+
+OTHER TECHNICAL DETAILS
+
+    · The compiler is two-pass.
+
+    · Strings and symbols are shared.
+
+    · Eval compiles its expression before evaluating it.
+
+    · Mappings are self-resizable, i.e. you don't have to worry
+      about them being too small or too big.
+
+    · The number notation of R5RS is supported and exceeded.  You
+      can for example type a binary float like "#b10.11e10". :)
+
+    · Exceptions are implemented, but not used very much (yet).
+
+    · The `--dump' option creates a file like src/bootstrap.h.
+
+    · The files lib/init.shoe and (the ending of) src/bif.c contain
+      all currently supported functions.
+
+
+BUGS
+
+  Send bug reports to Fredrik Noring <noring@nocrew.org>.
