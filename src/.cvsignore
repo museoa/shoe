@@ -1,0 +1,8 @@
+Makefile
+configure
+config.log
+config.cache
+config.status
+shoe
+universe.h
+universe.h.in
